@@ -17,6 +17,7 @@ const themeToggle = document.getElementById("theme-toggle");
 const difficultySelect = document.getElementById("difficulty");
 const gridSizeSelect = document.getElementById("grid-size");
 const gridToggle = document.getElementById("grid-toggle");
+const gridThemeButtons = document.querySelectorAll(".theme-btn[data-grid-theme]");
 const menu = document.getElementById("menu");
 const startButton = document.getElementById("start-game");
 const styleButtons = document.querySelectorAll(".style-btn[data-style]");
@@ -49,17 +50,40 @@ const DIFFICULTY_KEY = "snake:difficulty";
 const GRID_KEY = "snake:grid";
 const GRID_SIZE_KEY = "snake:gridSize";
 const STYLE_KEY = "snake:style";
+const GRID_THEME_KEY = "snake:gridTheme";
 let showGrid = true;
 let gameStarted = false;
 let snakeStyle = "glossy";
+let gridTheme = "classic";
+const particles = [];
+let visualLoopId = null;
+
+const effects = {
+  shake: { end: 0, duration: 0, magnitude: 0 },
+  zoom: { end: 0, duration: 0, magnitude: 0 },
+};
 
 function render() {
   ctx.clearRect(0, 0, board.width, board.height);
+  const now = performance.now();
+  ctx.save();
+  applyCameraTransform(now);
   drawBoardBackground();
   if (showGrid) drawGrid();
 
   state.snake.forEach((part, index) => {
-    drawSnakeCell(part.x, part.y, cssVar("--snake"));
+    const prev = state.snake[index - 1] || null;
+    const next = state.snake[index + 1] || null;
+    drawSnakeCell(
+      part.x,
+      part.y,
+      cssVar("--snake"),
+      index,
+      state.snake.length,
+      state.direction,
+      prev,
+      next
+    );
     if (index === 0) drawEyes(part, state.direction);
   });
 
@@ -70,6 +94,8 @@ function render() {
   if (state.bonusFood) {
     drawBonusPepper(state.bonusFood.x, state.bonusFood.y, cssVar("--bonus"));
   }
+
+  drawParticles();
 
   scoreNode.textContent = String(state.score);
   if (highScoreNode) highScoreNode.textContent = String(highScore);
@@ -107,6 +133,7 @@ function render() {
     ctx.fillText(String(countdown), board.width / 2, board.height / 2);
   }
 
+  ctx.restore();
 }
 
 function drawBoardBackground() {
@@ -165,7 +192,7 @@ function drawBonusPepper(x, y, color) {
 }
 
 function drawGrid() {
-  ctx.strokeStyle = "rgba(148, 163, 184, 0.25)";
+  ctx.strokeStyle = cssVar("--grid-line");
   ctx.lineWidth = 1;
   for (let x = 0; x <= board.width; x += cellSize) {
     ctx.beginPath();
@@ -191,35 +218,80 @@ function drawCell(x, y, color) {
   );
 }
 
-function drawSnakeCell(x, y, color) {
+function drawSnakeCell(x, y, color, index, total, headDirection, prev, next) {
   const px = x * cellSize + 1;
   const py = y * cellSize + 1;
   const size = cellSize - 2;
   const radius = Math.max(3, size * 0.18);
+  const isHead = index === 0;
+  const isTail = index === total - 1;
+  const tailDir = isTail && prev ? getDirection({ x, y }, prev) : null;
 
   if (snakeStyle === "classic") {
+    if (isHead) {
+      ctx.fillStyle = color;
+      drawHeadShape(px, py, size, radius, headDirection);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(15, 23, 42, 0.35)";
+      ctx.lineWidth = 1;
+      drawHeadShape(px + 0.5, py + 0.5, size - 1, radius * 0.8, headDirection);
+      ctx.stroke();
+      drawHeadLighting(px, py, size, headDirection);
+      return;
+    }
+
+    if (isTail) {
+      ctx.fillStyle = color;
+      drawTailShape(px, py, size, radius, tailDir);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(15, 23, 42, 0.35)";
+      ctx.lineWidth = 1;
+      drawTailShape(px + 0.5, py + 0.5, size - 1, radius * 0.7, tailDir);
+      ctx.stroke();
+      return;
+    }
+
     ctx.fillStyle = color;
     ctx.fillRect(px, py, size, size);
     ctx.strokeStyle = "rgba(15, 23, 42, 0.35)";
     ctx.lineWidth = 1;
     ctx.strokeRect(px + 0.5, py + 0.5, size - 1, size - 1);
+    drawBodyPattern(px, py, size);
     return;
   }
 
   if (snakeStyle === "neon") {
+    const segmentColor = getNeonSegmentColor(color, index, total);
+    const glowColor = toRgba(segmentColor, isHead ? 0.55 : 0.3);
+    const neonRadius = Math.max(4, size * 0.24);
     ctx.save();
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = color;
-    roundRect(px, py, size, size, radius);
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = isHead ? 18 : 10;
+    ctx.fillStyle = segmentColor;
+    if (isHead) {
+      drawHeadShape(px, py, size, neonRadius, headDirection);
+    } else if (isTail) {
+      drawTailShape(px, py, size, neonRadius, tailDir);
+    } else {
+      roundRect(px, py, size, size, neonRadius);
+    }
     ctx.fill();
     ctx.restore();
 
+    if (isHead) drawHeadLighting(px, py, size, headDirection, true);
+
     ctx.save();
-    ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
-    roundRect(px + 2, py + 2, size - 4, size - 4, radius * 0.8);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+    if (isHead) {
+      drawHeadShape(px + 2, py + 2, size - 4, neonRadius * 0.7, headDirection);
+    } else if (isTail) {
+      drawTailShape(px + 2, py + 2, size - 4, neonRadius * 0.7, tailDir);
+    } else {
+      roundRect(px + 2, py + 2, size - 4, size - 4, neonRadius * 0.8);
+    }
     ctx.fill();
     ctx.restore();
+    if (!isHead) drawBodyPattern(px, py, size, 0.18);
     return;
   }
 
@@ -228,20 +300,40 @@ function drawSnakeCell(x, y, color) {
   ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
   ctx.shadowBlur = 6;
   ctx.shadowOffsetY = 2;
-  roundRect(px, py, size, size, radius);
+  if (isHead) {
+    drawHeadShape(px, py, size, radius, headDirection);
+  } else if (isTail) {
+    drawTailShape(px, py, size, radius, tailDir);
+  } else {
+    roundRect(px, py, size, size, radius);
+  }
   ctx.fill();
   ctx.restore();
 
   ctx.save();
   ctx.fillStyle = "rgba(255, 255, 255, 0.22)";
-  roundRect(px + 1.5, py + 1.5, size - 3, size * 0.45, radius * 0.7);
+  if (isHead) {
+    drawHeadShape(px + 1.5, py + 1.5, size - 3, radius * 0.7, headDirection);
+  } else if (isTail) {
+    drawTailShape(px + 1.5, py + 1.5, size - 3, radius * 0.7, tailDir);
+  } else {
+    roundRect(px + 1.5, py + 1.5, size - 3, size * 0.45, radius * 0.7);
+  }
   ctx.fill();
   ctx.restore();
 
   ctx.strokeStyle = "rgba(15, 23, 42, 0.35)";
   ctx.lineWidth = 1;
-  roundRect(px + 0.5, py + 0.5, size - 1, size - 1, radius);
+  if (isHead) {
+    drawHeadShape(px + 0.5, py + 0.5, size - 1, radius * 0.8, headDirection);
+  } else if (isTail) {
+    drawTailShape(px + 0.5, py + 0.5, size - 1, radius * 0.8, tailDir);
+  } else {
+    roundRect(px + 0.5, py + 0.5, size - 1, size - 1, radius);
+  }
   ctx.stroke();
+  if (isHead) drawHeadLighting(px, py, size, headDirection);
+  if (!isHead) drawBodyPattern(px, py, size);
 }
 
 function roundRect(x, y, width, height, radius) {
@@ -256,6 +348,210 @@ function roundRect(x, y, width, height, radius) {
   ctx.lineTo(x, y + radius);
   ctx.quadraticCurveTo(x, y, x + radius, y);
   ctx.closePath();
+}
+
+function roundRectCustom(x, y, width, height, radii) {
+  const { tl, tr, br, bl } = radii;
+  ctx.beginPath();
+  ctx.moveTo(x + tl, y);
+  ctx.lineTo(x + width - tr, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + tr);
+  ctx.lineTo(x + width, y + height - br);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - br, y + height);
+  ctx.lineTo(x + bl, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - bl);
+  ctx.lineTo(x, y + tl);
+  ctx.quadraticCurveTo(x, y, x + tl, y);
+  ctx.closePath();
+}
+
+function drawHeadShape(x, y, size, radius, direction) {
+  const front = radius * 1.25;
+  const back = radius * 0.5;
+  if (direction === "right") {
+    roundRectCustom(x, y, size, size, { tl: back, tr: front, br: front, bl: back });
+  } else if (direction === "left") {
+    roundRectCustom(x, y, size, size, { tl: front, tr: back, br: back, bl: front });
+  } else if (direction === "down") {
+    roundRectCustom(x, y, size, size, { tl: back, tr: back, br: front, bl: front });
+  } else {
+    roundRectCustom(x, y, size, size, { tl: front, tr: front, br: back, bl: back });
+  }
+}
+
+function drawTailShape(x, y, size, radius, direction) {
+  const inset = size * 0.08;
+  const inner = size - inset * 2;
+  const tailRadius = radius * 0.9;
+  const tip = size * 0.35;
+  const tailDir = direction || "right";
+
+  ctx.beginPath();
+  if (tailDir === "right") {
+    roundRectCustom(x + inset + tip * 0.3, y + inset, inner - tip, inner, {
+      tl: tailRadius,
+      tr: tailRadius * 0.6,
+      br: tailRadius * 0.6,
+      bl: tailRadius,
+    });
+    ctx.moveTo(x + inset + tip * 0.3, y + inset + inner * 0.2);
+    ctx.lineTo(x + inset, y + inset + inner / 2);
+    ctx.lineTo(x + inset + tip * 0.3, y + inset + inner * 0.8);
+  } else if (tailDir === "left") {
+    roundRectCustom(x + inset, y + inset, inner - tip, inner, {
+      tl: tailRadius * 0.6,
+      tr: tailRadius,
+      br: tailRadius,
+      bl: tailRadius * 0.6,
+    });
+    ctx.moveTo(x + inset + inner - tip * 0.3, y + inset + inner * 0.2);
+    ctx.lineTo(x + inset + inner, y + inset + inner / 2);
+    ctx.lineTo(x + inset + inner - tip * 0.3, y + inset + inner * 0.8);
+  } else if (tailDir === "down") {
+    roundRectCustom(x + inset, y + inset, inner, inner - tip, {
+      tl: tailRadius,
+      tr: tailRadius,
+      br: tailRadius * 0.6,
+      bl: tailRadius * 0.6,
+    });
+    ctx.moveTo(x + inset + inner * 0.2, y + inset + inner - tip * 0.3);
+    ctx.lineTo(x + inset + inner / 2, y + inset + inner);
+    ctx.lineTo(x + inset + inner * 0.8, y + inset + inner - tip * 0.3);
+  } else {
+    roundRectCustom(x + inset, y + inset + tip, inner, inner - tip, {
+      tl: tailRadius * 0.6,
+      tr: tailRadius * 0.6,
+      br: tailRadius,
+      bl: tailRadius,
+    });
+    ctx.moveTo(x + inset + inner * 0.2, y + inset + tip * 0.3);
+    ctx.lineTo(x + inset + inner / 2, y + inset);
+    ctx.lineTo(x + inset + inner * 0.8, y + inset + tip * 0.3);
+  }
+  ctx.closePath();
+}
+
+function drawBodyPattern(x, y, size, alpha = 0.22) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+  const stripeCount = 3;
+  const stripeWidth = size * 0.15;
+  for (let i = 0; i < stripeCount; i += 1) {
+    const offset = (i + 1) * (size / (stripeCount + 1));
+    ctx.beginPath();
+    ctx.moveTo(x + offset, y + 2);
+    ctx.lineTo(x + offset + stripeWidth, y + 2);
+    ctx.lineTo(x + offset + stripeWidth * 0.5, y + size - 2);
+    ctx.lineTo(x + offset - stripeWidth * 0.5, y + size - 2);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function getDirection(from, to) {
+  if (!from || !to) return "right";
+  if (to.x > from.x) return "right";
+  if (to.x < from.x) return "left";
+  if (to.y > from.y) return "down";
+  return "up";
+}
+
+function getNeonSegmentColor(baseColor, index, total) {
+  const length = Math.max(1, total - 1);
+  const t = total > 1 ? index / length : 0;
+  const darker = mixColors(baseColor, "#000000", 0.35);
+  const lighter = mixColors(baseColor, "#ffffff", 0.22);
+  return mixColors(lighter, darker, t);
+}
+
+function mixColors(colorA, colorB, amount) {
+  const a = parseHexColor(colorA);
+  const b = parseHexColor(colorB);
+  if (!a || !b) return colorA;
+  const mix = (c1, c2) => Math.round(c1 + (c2 - c1) * amount);
+  return `rgb(${mix(a.r, b.r)}, ${mix(a.g, b.g)}, ${mix(a.b, b.b)})`;
+}
+
+function parseHexColor(hex) {
+  if (!hex || typeof hex !== "string") return null;
+  const value = hex.replace("#", "");
+  if (value.length === 3) {
+    const r = parseInt(value[0] + value[0], 16);
+    const g = parseInt(value[1] + value[1], 16);
+    const b = parseInt(value[2] + value[2], 16);
+    return { r, g, b };
+  }
+  if (value.length === 6) {
+    const r = parseInt(value.slice(0, 2), 16);
+    const g = parseInt(value.slice(2, 4), 16);
+    const b = parseInt(value.slice(4, 6), 16);
+    return { r, g, b };
+  }
+  return null;
+}
+
+function toRgba(color, alpha) {
+  const rgb = parseHexColor(color);
+  if (!rgb) return color;
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+}
+
+function drawHeadLighting(x, y, size, direction, isNeon = false) {
+  const lead = size * 0.35;
+  const band = size * 0.18;
+  let gx0 = x;
+  let gy0 = y;
+  let gx1 = x + size;
+  let gy1 = y + size;
+  let highlightX = x + size * 0.2;
+  let highlightY = y + size * 0.2;
+  let highlightW = size * 0.35;
+  let highlightH = size * 0.18;
+
+  if (direction === "right") {
+    gx0 = x;
+    gx1 = x + size;
+    highlightX = x + size - lead;
+    highlightY = y + size * 0.25;
+    highlightW = lead * 0.75;
+    highlightH = band;
+  } else if (direction === "left") {
+    gx0 = x + size;
+    gx1 = x;
+    highlightX = x + lead * 0.25;
+    highlightY = y + size * 0.25;
+    highlightW = lead * 0.75;
+    highlightH = band;
+  } else if (direction === "down") {
+    gy0 = y;
+    gy1 = y + size;
+    highlightX = x + size * 0.25;
+    highlightY = y + size - lead;
+    highlightW = band;
+    highlightH = lead * 0.75;
+  } else {
+    gy0 = y + size;
+    gy1 = y;
+    highlightX = x + size * 0.25;
+    highlightY = y + lead * 0.25;
+    highlightW = band;
+    highlightH = lead * 0.75;
+  }
+
+  ctx.save();
+  const shade = ctx.createLinearGradient(gx0, gy0, gx1, gy1);
+  shade.addColorStop(0, isNeon ? "rgba(0, 0, 0, 0.08)" : "rgba(0, 0, 0, 0.12)");
+  shade.addColorStop(1, "rgba(255, 255, 255, 0.12)");
+  ctx.fillStyle = shade;
+  ctx.fillRect(x + 1, y + 1, size - 2, size - 2);
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.38)";
+  ctx.beginPath();
+  ctx.roundRect(highlightX, highlightY, highlightW, highlightH, band * 0.6);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawEyes(head, direction) {
@@ -293,6 +589,114 @@ function drawEyes(head, direction) {
   ctx.beginPath();
   ctx.arc(right.x, right.y, eyeRadius, 0, Math.PI * 2);
   ctx.fill();
+}
+
+function drawParticles() {
+  for (const particle of particles) {
+    ctx.globalAlpha = particle.life;
+    ctx.fillStyle = particle.color;
+    ctx.beginPath();
+    ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function applyCameraTransform(now) {
+  const shake = effects.shake;
+  const zoom = effects.zoom;
+
+  let shakeX = 0;
+  let shakeY = 0;
+  if (now < shake.end) {
+    const t = (shake.end - now) / shake.duration;
+    const strength = shake.magnitude * t;
+    shakeX = (Math.random() * 2 - 1) * strength;
+    shakeY = (Math.random() * 2 - 1) * strength;
+  }
+
+  let scale = 1;
+  if (now < zoom.end) {
+    const t = (zoom.end - now) / zoom.duration;
+    scale += zoom.magnitude * t * t;
+  }
+
+  const cx = board.width / 2;
+  const cy = board.height / 2;
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+  ctx.translate(-cx, -cy);
+  if (shakeX || shakeY) ctx.translate(shakeX, shakeY);
+}
+
+function startVisualLoop() {
+  if (visualLoopId) return;
+  let last = performance.now();
+  const frame = (now) => {
+    const delta = Math.min(40, now - last);
+    last = now;
+    updateVisuals(delta, now);
+    render();
+    if (hasActiveVisuals(now)) {
+      visualLoopId = requestAnimationFrame(frame);
+    } else {
+      visualLoopId = null;
+    }
+  };
+  visualLoopId = requestAnimationFrame(frame);
+}
+
+function hasActiveVisuals(now) {
+  return (
+    now < effects.shake.end ||
+    now < effects.zoom.end ||
+    particles.length > 0
+  );
+}
+
+function updateVisuals(delta, now) {
+  if (!particles.length) return;
+  for (let i = particles.length - 1; i >= 0; i -= 1) {
+    const particle = particles[i];
+    particle.x += particle.vx * (delta / 1000);
+    particle.y += particle.vy * (delta / 1000);
+    particle.vx *= 0.96;
+    particle.vy *= 0.96;
+    particle.life -= delta / particle.ttl;
+    if (particle.life <= 0) particles.splice(i, 1);
+  }
+}
+
+function triggerShake(magnitude = 10, duration = 260) {
+  const now = performance.now();
+  effects.shake = { end: now + duration, duration, magnitude };
+  startVisualLoop();
+}
+
+function triggerZoom(magnitude = 0.07, duration = 180) {
+  const now = performance.now();
+  effects.zoom = { end: now + duration, duration, magnitude };
+  startVisualLoop();
+}
+
+function spawnParticles(x, y, color, count = 14) {
+  const cx = x * cellSize + cellSize / 2;
+  const cy = y * cellSize + cellSize / 2;
+  for (let i = 0; i < count; i += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = cellSize * (0.6 + Math.random() * 0.8);
+    particles.push({
+      x: cx,
+      y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1,
+      ttl: 420 + Math.random() * 180,
+      size: Math.max(1.5, cellSize * (0.08 + Math.random() * 0.05)),
+      color,
+    });
+  }
+  startVisualLoop();
 }
 
 function handleDirectionInput(direction) {
@@ -410,6 +814,20 @@ if (gridToggle) {
   });
 }
 
+gridThemeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const nextTheme = button.dataset.gridTheme;
+    if (!nextTheme) return;
+    gridTheme = nextTheme;
+    document.body.setAttribute("data-grid-theme", nextTheme);
+    localStorage.setItem(GRID_THEME_KEY, nextTheme);
+    gridThemeButtons.forEach((btn) =>
+      btn.setAttribute("aria-pressed", btn === button ? "true" : "false")
+    );
+    render();
+  });
+});
+
 styleButtons.forEach((button) => {
   button.addEventListener("click", () => {
     const nextStyle = button.dataset.style;
@@ -450,15 +868,35 @@ function startLoop() {
   lastTickMs = getTickMs(state.score);
   tickId = setInterval(() => {
     if (countdown > 0) return;
+    const prevState = state;
     state = tick(state);
+    const died = !prevState.isGameOver && state.isGameOver;
     if (state.isGameOver && lives > 0) {
       lives -= 1;
       state = respawn(state);
       startCountdown();
     }
+    if (died) triggerShake(12, 260);
     if (state.score > highScore) {
       highScore = state.score;
       localStorage.setItem("snake:highScore", String(highScore));
+    }
+    const head = state.snake[0];
+    const ateFood =
+      prevState.food &&
+      head.x === prevState.food.x &&
+      head.y === prevState.food.y &&
+      state.score === prevState.score + 1;
+    const ateBonus =
+      prevState.bonusFood &&
+      head.x === prevState.bonusFood.x &&
+      head.y === prevState.bonusFood.y;
+    if (ateFood) {
+      spawnParticles(prevState.food.x, prevState.food.y, cssVar("--food"));
+      triggerZoom();
+    } else if (ateBonus) {
+      spawnParticles(prevState.bonusFood.x, prevState.bonusFood.y, cssVar("--bonus"), 18);
+      triggerZoom(0.09, 220);
     }
     const nextTickMs = getTickMs(state.score);
     if (nextTickMs !== lastTickMs) {
@@ -513,6 +951,11 @@ if (savedGridSize && !Number.isNaN(savedGridSize)) {
   if (gridSizeSelect) gridSizeSelect.value = String(savedGridSize);
 }
 
+const savedGridTheme = localStorage.getItem(GRID_THEME_KEY);
+if (savedGridTheme) {
+  gridTheme = savedGridTheme;
+}
+
 const savedStyle = localStorage.getItem(STYLE_KEY);
 if (savedStyle) {
   snakeStyle = savedStyle;
@@ -528,6 +971,11 @@ state = createInitialState({
   wrapWalls: currentDifficulty === "easy",
 });
 cellSize = board.width / gridSize;
+
+document.body.setAttribute("data-grid-theme", gridTheme);
+gridThemeButtons.forEach((btn) =>
+  btn.setAttribute("aria-pressed", btn.dataset.gridTheme === gridTheme ? "true" : "false")
+);
 
 render();
 

@@ -11,6 +11,7 @@
         --text: #1f2933;
         --grid: #d9e2ec;
         --board: #ffffff;
+        --grid-line: rgba(148, 163, 184, 0.25);
         --snake: #f6ad55;
         --food: #c53030;
         --bonus: #805ad5;
@@ -25,12 +26,33 @@
         --text: #e2e8f0;
         --grid: #1f2937;
         --board: #0b1220;
+        --grid-line: rgba(51, 65, 85, 0.55);
         --snake: #f6ad55;
         --food: #f87171;
         --bonus: #a78bfa;
         --overlay: rgba(0, 0, 0, 0.55);
         --overlay-text: #f8fafc;
         --eye: #0b1020;
+      }
+
+      body[data-grid-theme="mint"] {
+        --board: #f0fdf4;
+        --grid-line: rgba(34, 197, 94, 0.18);
+      }
+
+      body.dark[data-grid-theme="mint"] {
+        --board: #0b1f14;
+        --grid-line: rgba(34, 197, 94, 0.25);
+      }
+
+      body[data-grid-theme="sunset"] {
+        --board: #fff7ed;
+        --grid-line: rgba(249, 115, 22, 0.22);
+      }
+
+      body.dark[data-grid-theme="sunset"] {
+        --board: #1f120a;
+        --grid-line: rgba(249, 115, 22, 0.28);
       }
 
       body {
@@ -63,17 +85,86 @@
 
       .row {
         display: grid;
-        grid-template-columns: 1fr 1fr auto;
+        grid-template-columns: 1fr 1fr 1fr;
         gap: 12px;
         align-items: center;
         margin-bottom: 12px;
       }
 
-      .button-group {
-        display: inline-flex;
-        gap: 8px;
+      .header-block {
+        display: flex;
         align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .header-block.left {
+        justify-content: flex-start;
+      }
+
+      .header-block.center {
+        justify-content: center;
+      }
+
+      .header-block.right {
         justify-content: flex-end;
+      }
+
+      .score-group {
+        display: inline-flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      details.controls-panel {
+        border: 1px solid var(--grid);
+        border-radius: 10px;
+        padding: 6px 10px;
+        background: var(--panel);
+      }
+
+      details.controls-panel[open] {
+        box-shadow: 0 8px 16px rgba(15, 23, 42, 0.12);
+      }
+
+      details.controls-panel summary {
+        list-style: none;
+        cursor: pointer;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      details.controls-panel summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .controls-content {
+        margin-top: 8px;
+        display: inline-flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .controls-label {
+        font-size: 0.85rem;
+        opacity: 0.8;
+        font-weight: 600;
+      }
+
+      @media (max-width: 860px) {
+        .row {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+
+        .header-block {
+          justify-content: center;
+        }
       }
 
       .color-picker {
@@ -180,6 +271,12 @@
         margin: 12px 0 16px;
       }
 
+      .theme-options {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+      }
+
       .style-btn {
         border: 1px solid var(--grid);
         background: var(--panel);
@@ -191,6 +288,21 @@
       }
 
       .style-btn[aria-pressed="true"] {
+        border-color: #f59e0b;
+        box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35);
+      }
+
+      .theme-btn {
+        border: 1px solid var(--grid);
+        background: var(--panel);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .theme-btn[aria-pressed="true"] {
         border-color: #f59e0b;
         box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35);
       }
@@ -219,9 +331,16 @@
         aspect-ratio: 1 / 1;
         border: 1px solid var(--grid);
         background: #fff;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18),
+          0 0 0 2px rgba(245, 158, 11, 0.15);
         display: block;
         margin-left: auto;
         margin-right: auto;
+      }
+
+      body.dark canvas {
+        box-shadow: 0 10px 24px rgba(2, 6, 23, 0.55),
+          0 0 0 2px rgba(148, 163, 184, 0.2);
       }
 
       .controls {
@@ -308,29 +427,40 @@
       <section class="panel">
         <h1 class="title">SnaKeY by SMH</h1>
         <div class="row">
-          <div class="score">Score: <span id="score">0</span></div>
-          <div class="score">High score: <span id="high-score">0</span></div>
-          <div class="button-group">
-            <label class="difficulty">
-              Difficulty
-              <select id="difficulty" aria-label="Difficulty">
-                <option value="easy">Easy</option>
-                <option value="medium" selected>Medium</option>
-                <option value="hard">Hard</option>
-              </select>
-            </label>
-            <label class="difficulty">
-              Grid size
-              <select id="grid-size" aria-label="Grid size">
-                <option value="20">20</option>
-                <option value="24" selected>24</option>
-                <option value="28">28</option>
-              </select>
-            </label>
-            <label class="toggle">
-              Grid
-              <input id="grid-toggle" type="checkbox" checked />
-            </label>
+          <div class="header-block left">
+            <div class="score-group">
+              <div class="score">Score: <span id="score">0</span></div>
+              <div class="score">High score: <span id="high-score">0</span></div>
+            </div>
+          </div>
+          <div class="header-block center">
+            <details class="controls-panel">
+              <summary>Game controls</summary>
+              <div class="controls-content">
+                <label class="difficulty">
+                  <span class="controls-label">Difficulty</span>
+                  <select id="difficulty" aria-label="Difficulty">
+                    <option value="easy">Easy</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="hard">Hard</option>
+                  </select>
+                </label>
+                <label class="difficulty">
+                  <span class="controls-label">Grid size</span>
+                  <select id="grid-size" aria-label="Grid size">
+                    <option value="20">20</option>
+                    <option value="24" selected>24</option>
+                    <option value="28">28</option>
+                  </select>
+                </label>
+                <label class="toggle">
+                  Grid
+                  <input id="grid-toggle" type="checkbox" checked />
+                </label>
+              </div>
+            </details>
+          </div>
+          <div class="header-block right">
             <button id="theme-toggle" class="btn btn-ghost" type="button">
               Dark mode
             </button>
@@ -374,6 +504,17 @@
               style="background: #f472b6"
               type="button"
             ></button>
+          </div>
+          <div class="theme-options" role="group" aria-label="Grid theme">
+            <button class="theme-btn" data-grid-theme="classic" aria-pressed="true" type="button">
+              Classic
+            </button>
+            <button class="theme-btn" data-grid-theme="mint" aria-pressed="false" type="button">
+              Mint
+            </button>
+            <button class="theme-btn" data-grid-theme="sunset" aria-pressed="false" type="button">
+              Sunset
+            </button>
           </div>
           <div class="score">
             Lives: <span id="lives"></span><span id="lives-empty"></span>
