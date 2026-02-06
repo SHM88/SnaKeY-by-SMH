@@ -343,40 +343,6 @@
           0 0 0 2px rgba(148, 163, 184, 0.2);
       }
 
-      .controls {
-        margin-top: 12px;
-        display: grid;
-        grid-template-columns: repeat(3, 56px);
-        grid-template-rows: repeat(2, 40px);
-        gap: 6px;
-        width: fit-content;
-        margin-left: auto;
-        margin-right: auto;
-      }
-
-      .controls button {
-        border: 1px solid var(--grid);
-        background: #fff;
-        border-radius: 6px;
-        cursor: pointer;
-      }
-
-      .controls .up {
-        grid-column: 2;
-      }
-      .controls .left {
-        grid-column: 1;
-        grid-row: 2;
-      }
-      .controls .down {
-        grid-column: 2;
-        grid-row: 2;
-      }
-      .controls .right {
-        grid-column: 3;
-        grid-row: 2;
-      }
-
       .hint {
         margin-top: 8px;
         font-size: 0.9rem;
@@ -520,14 +486,8 @@
             Lives: <span id="lives"></span><span id="lives-empty"></span>
           </div>
         </div>
-        <div class="controls" aria-label="Touch controls">
-          <button class="up" data-dir="up" type="button">Up</button>
-          <button class="left" data-dir="left" type="button">Left</button>
-          <button class="down" data-dir="down" type="button">Down</button>
-          <button class="right" data-dir="right" type="button">Right</button>
-        </div>
         <div class="hint">
-          Use arrow keys or WASD. Space pauses. Purple food is bonus points.
+          Use arrow keys or WASD. Space pauses. Press R to restart. Purple food is bonus points.
         </div>
       </section>
     </main>

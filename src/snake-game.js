@@ -21,7 +21,6 @@ const gridThemeButtons = document.querySelectorAll(".theme-btn[data-grid-theme]"
 const menu = document.getElementById("menu");
 const startButton = document.getElementById("start-game");
 const styleButtons = document.querySelectorAll(".style-btn[data-style]");
-const controlButtons = document.querySelectorAll(".controls button[data-dir]");
 const colorButtons = document.querySelectorAll(".color-swatch[data-color]");
 const ctx = board.getContext("2d");
 
@@ -101,7 +100,11 @@ function render() {
   if (highScoreNode) highScoreNode.textContent = String(highScore);
   if (livesNode) {
     const maxLives = DIFFICULTIES[currentDifficulty].lives;
-    livesNode.textContent = maxLives > 0 ? "❤".repeat(lives) : "0";
+    if (maxLives > 0) {
+      livesNode.textContent = lives === 0 ? "❤ x0" : "❤".repeat(lives);
+    } else {
+      livesNode.textContent = "❤ x0";
+    }
     if (livesEmptyNode) {
       const empty = Math.max(0, maxLives - lives);
       livesEmptyNode.textContent = empty > 0 ? "❤".repeat(empty) : "";
@@ -116,7 +119,7 @@ function render() {
     ctx.textAlign = "center";
     ctx.fillText("Game Over", board.width / 2, board.height / 2 - 8);
     ctx.font = "18px system-ui";
-    ctx.fillText("Press Restart", board.width / 2, board.height / 2 + 24);
+    ctx.fillText("Press R to Restart", board.width / 2, board.height / 2 + 24);
   } else if (state.isPaused) {
     ctx.fillStyle = cssVar("--overlay");
     ctx.fillRect(0, 0, board.width, board.height);
@@ -144,11 +147,43 @@ function drawBoardBackground() {
 function drawFoodDot(x, y, color) {
   const cx = x * cellSize + cellSize / 2;
   const cy = y * cellSize + cellSize / 2;
-  const radius = Math.max(2, cellSize * 0.18);
-  ctx.fillStyle = color;
+  const radius = Math.max(3, cellSize * 0.22);
+
+  ctx.save();
+  ctx.shadowColor = toRgba(color, 0.28);
+  ctx.shadowBlur = cellSize * 0.18;
+
+  const grad = ctx.createRadialGradient(
+    cx - radius * 0.45,
+    cy - radius * 0.45,
+    radius * 0.2,
+    cx + radius * 0.6,
+    cy + radius * 0.6,
+    radius * 1.2
+  );
+  grad.addColorStop(0, mixColors(color, "#ffffff", 0.35));
+  grad.addColorStop(0.55, color);
+  grad.addColorStop(1, mixColors(color, "#000000", 0.25));
+
+  ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.arc(cx, cy, radius, 0, Math.PI * 2);
   ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+  ctx.beginPath();
+  ctx.ellipse(
+    cx - radius * 0.35,
+    cy - radius * 0.35,
+    radius * 0.35,
+    radius * 0.25,
+    -0.4,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawBonusPepper(x, y, color) {
@@ -563,7 +598,8 @@ function drawEyes(head, direction) {
   };
   const separation = cellSize * 0.14;
   const forward = cellSize * 0.12;
-  const eyeRadius = cellSize * 0.09;
+  const eyeRadius = cellSize * 0.11;
+  const pupilRadius = eyeRadius * 0.45;
 
   let left = { x: center.x - separation, y: center.y - separation };
   let right = { x: center.x + separation, y: center.y - separation };
@@ -582,13 +618,48 @@ function drawEyes(head, direction) {
     right = { x: center.x + separation, y: center.y - forward };
   }
 
-  ctx.fillStyle = cssVar("--eye");
+  const now = performance.now() / 1000;
+  const wobble = Math.sin(now * 6) * eyeRadius * 0.12;
+  const look = getLookOffset(direction, eyeRadius * 0.35);
+
+  ctx.fillStyle = "#f8fafc";
+  ctx.strokeStyle = "rgba(15, 23, 42, 0.25)";
+  ctx.lineWidth = Math.max(1, cellSize * 0.03);
   ctx.beginPath();
   ctx.arc(left.x, left.y, eyeRadius, 0, Math.PI * 2);
   ctx.fill();
+  ctx.stroke();
   ctx.beginPath();
   ctx.arc(right.x, right.y, eyeRadius, 0, Math.PI * 2);
   ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#0b1020";
+  ctx.beginPath();
+  ctx.arc(
+    left.x + look.x + wobble,
+    left.y + look.y + wobble,
+    pupilRadius,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(
+    right.x + look.x + wobble,
+    right.y + look.y - wobble,
+    pupilRadius,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+}
+
+function getLookOffset(direction, distance) {
+  if (direction === "down") return { x: 0, y: distance };
+  if (direction === "left") return { x: -distance, y: 0 };
+  if (direction === "right") return { x: distance, y: 0 };
+  return { x: 0, y: -distance };
 }
 
 function drawParticles() {
@@ -726,6 +797,18 @@ function onKeyDown(event) {
     render();
     return;
   }
+  if (event.key === "r" || event.key === "R") {
+    event.preventDefault();
+    state = restart(state);
+    lives = DIFFICULTIES[currentDifficulty].lives;
+    if (!gameStarted) {
+      startGame();
+      return;
+    }
+    startCountdown();
+    render();
+    return;
+  }
 
   const direction = map[event.key];
   if (!direction) return;
@@ -733,12 +816,6 @@ function onKeyDown(event) {
   handleDirectionInput(direction);
 }
 
-for (const button of controlButtons) {
-  button.addEventListener("click", () => {
-    const direction = button.dataset.dir;
-    if (direction) handleDirectionInput(direction);
-  });
-}
 
 function resetBoard(nextGridSize) {
   gridSize = nextGridSize;
