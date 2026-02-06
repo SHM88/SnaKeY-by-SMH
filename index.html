@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Snake</title>
+    <style>
+      :root {
+        --bg: #f6f7f8;
+        --panel: #ffffff;
+        --text: #1f2933;
+        --grid: #d9e2ec;
+        --board: #ffffff;
+        --snake: #f6ad55;
+        --food: #c53030;
+        --bonus: #805ad5;
+        --overlay: rgba(0, 0, 0, 0.3);
+        --overlay-text: #ffffff;
+        --eye: #1a202c;
+      }
+
+      body.dark {
+        --bg: #0f172a;
+        --panel: #111827;
+        --text: #e2e8f0;
+        --grid: #1f2937;
+        --board: #0b1220;
+        --snake: #f6ad55;
+        --food: #f87171;
+        --bonus: #a78bfa;
+        --overlay: rgba(0, 0, 0, 0.55);
+        --overlay-text: #f8fafc;
+        --eye: #0b1020;
+      }
+
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      .wrap {
+        max-width: 760px;
+        margin: 24px auto;
+        padding: 16px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--grid);
+        border-radius: 8px;
+        padding: 16px;
+      }
+
+      .title {
+        margin: 0 0 12px;
+        font-size: 1.4rem;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        text-align: center;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr auto;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      .button-group {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: flex-end;
+      }
+
+      .color-picker {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .color-swatch {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        cursor: pointer;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+      }
+
+      .color-swatch[aria-pressed="true"] {
+        border-color: var(--text);
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+      }
+
+      .btn {
+        border: 1px solid var(--grid);
+        background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        cursor: pointer;
+        transition: transform 120ms ease, box-shadow 120ms ease,
+          background 120ms ease;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
+      }
+
+      .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
+      }
+
+      .btn:active {
+        transform: translateY(0);
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+      }
+
+      .btn-primary {
+        border-color: #f59e0b;
+        background: linear-gradient(180deg, #fde68a 0%, #f59e0b 100%);
+        color: #1f2933;
+      }
+
+      .btn-ghost {
+        background: transparent;
+      }
+
+      body.dark .btn {
+        border-color: #1f2937;
+        background: linear-gradient(180deg, #1f2937 0%, #0f172a 100%);
+        color: #e2e8f0;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+      }
+
+      body.dark .btn-primary {
+        border-color: #f59e0b;
+        background: linear-gradient(180deg, #f59e0b 0%, #b45309 100%);
+        color: #0b1020;
+      }
+
+      .menu {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(15, 23, 42, 0.45);
+        backdrop-filter: blur(4px);
+        z-index: 10;
+      }
+
+      .menu.hidden {
+        display: none;
+      }
+
+      .menu-panel {
+        background: var(--panel);
+        border: 1px solid var(--grid);
+        border-radius: 12px;
+        padding: 20px;
+        width: min(420px, 90vw);
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.2);
+      }
+
+      .menu-title {
+        margin: 0 0 10px;
+        font-size: 1.2rem;
+        font-weight: 700;
+      }
+
+      .style-options {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin: 12px 0 16px;
+      }
+
+      .style-btn {
+        border: 1px solid var(--grid);
+        background: var(--panel);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 10px 8px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .style-btn[aria-pressed="true"] {
+        border-color: #f59e0b;
+        box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35);
+      }
+
+      .score {
+        font-weight: 600;
+      }
+
+      #lives,
+      #lives-empty {
+        letter-spacing: 2px;
+        margin-left: 4px;
+      }
+
+      #lives {
+        color: #ef4444;
+      }
+
+      #lives-empty {
+        color: rgba(239, 68, 68, 0.35);
+      }
+
+      canvas {
+        width: 100%;
+        max-width: 640px;
+        aspect-ratio: 1 / 1;
+        border: 1px solid var(--grid);
+        background: #fff;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      .controls {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: repeat(3, 56px);
+        grid-template-rows: repeat(2, 40px);
+        gap: 6px;
+        width: fit-content;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      .controls button {
+        border: 1px solid var(--grid);
+        background: #fff;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+
+      .controls .up {
+        grid-column: 2;
+      }
+      .controls .left {
+        grid-column: 1;
+        grid-row: 2;
+      }
+      .controls .down {
+        grid-column: 2;
+        grid-row: 2;
+      }
+      .controls .right {
+        grid-column: 3;
+        grid-row: 2;
+      }
+
+      .hint {
+        margin-top: 8px;
+        font-size: 0.9rem;
+      }
+
+      .status-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 8px;
+        font-weight: 600;
+      }
+
+      .difficulty {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .difficulty select {
+        border: 1px solid var(--grid);
+        background: var(--panel);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 6px 8px;
+        font-weight: 600;
+      }
+
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .toggle input {
+        width: 16px;
+        height: 16px;
+        accent-color: #f59e0b;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="panel">
+        <h1 class="title">SnaKeY by SMH</h1>
+        <div class="row">
+          <div class="score">Score: <span id="score">0</span></div>
+          <div class="score">High score: <span id="high-score">0</span></div>
+          <div class="button-group">
+            <label class="difficulty">
+              Difficulty
+              <select id="difficulty" aria-label="Difficulty">
+                <option value="easy">Easy</option>
+                <option value="medium" selected>Medium</option>
+                <option value="hard">Hard</option>
+              </select>
+            </label>
+            <label class="difficulty">
+              Grid size
+              <select id="grid-size" aria-label="Grid size">
+                <option value="20">20</option>
+                <option value="24" selected>24</option>
+                <option value="28">28</option>
+              </select>
+            </label>
+            <label class="toggle">
+              Grid
+              <input id="grid-toggle" type="checkbox" checked />
+            </label>
+            <button id="theme-toggle" class="btn btn-ghost" type="button">
+              Dark mode
+            </button>
+            <button id="restart" class="btn btn-primary" type="button">
+              Restart
+            </button>
+          </div>
+        </div>
+        <canvas id="board" width="720" height="720" aria-label="Snake game board"></canvas>
+        <div class="status-row">
+          <div class="color-picker" aria-label="Snake color">
+            <button
+              class="color-swatch"
+              data-color="#f6ad55"
+              aria-pressed="true"
+              title="Amber"
+              style="background: #f6ad55"
+              type="button"
+            ></button>
+            <button
+              class="color-swatch"
+              data-color="#22c55e"
+              aria-pressed="false"
+              title="Green"
+              style="background: #22c55e"
+              type="button"
+            ></button>
+            <button
+              class="color-swatch"
+              data-color="#38bdf8"
+              aria-pressed="false"
+              title="Sky"
+              style="background: #38bdf8"
+              type="button"
+            ></button>
+            <button
+              class="color-swatch"
+              data-color="#f472b6"
+              aria-pressed="false"
+              title="Pink"
+              style="background: #f472b6"
+              type="button"
+            ></button>
+          </div>
+          <div class="score">
+            Lives: <span id="lives"></span><span id="lives-empty"></span>
+          </div>
+        </div>
+        <div class="controls" aria-label="Touch controls">
+          <button class="up" data-dir="up" type="button">Up</button>
+          <button class="left" data-dir="left" type="button">Left</button>
+          <button class="down" data-dir="down" type="button">Down</button>
+          <button class="right" data-dir="right" type="button">Right</button>
+        </div>
+        <div class="hint">
+          Use arrow keys or WASD. Space pauses. Purple food is bonus points.
+        </div>
+      </section>
+    </main>
+    <div id="menu" class="menu">
+      <div class="menu-panel">
+        <h2 class="menu-title">Choose your snake style</h2>
+        <div class="style-options" role="group" aria-label="Snake style">
+          <button class="style-btn" data-style="classic" aria-pressed="false" type="button">
+            Classic
+          </button>
+          <button class="style-btn" data-style="glossy" aria-pressed="true" type="button">
+            Glossy
+          </button>
+          <button class="style-btn" data-style="neon" aria-pressed="false" type="button">
+            Neon
+          </button>
+        </div>
+        <button id="start-game" class="btn btn-primary" type="button">Start game</button>
+      </div>
+    </div>
+    <script type="module" src="./src/snake-game.js"></script>
+  </body>
+</html>
