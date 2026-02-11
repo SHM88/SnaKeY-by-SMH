@@ -17,6 +17,9 @@ const themeToggle = document.getElementById("theme-toggle");
 const difficultySelect = document.getElementById("difficulty");
 const gridSizeSelect = document.getElementById("grid-size");
 const gridToggle = document.getElementById("grid-toggle");
+const obstaclesToggle = document.getElementById("obstacles-toggle");
+const slitherToggle = document.getElementById("slither-toggle");
+const dailyToggle = document.getElementById("daily-toggle");
 const gridThemeButtons = document.querySelectorAll(".theme-btn[data-grid-theme]");
 const menu = document.getElementById("menu");
 const startButton = document.getElementById("start-game");
@@ -26,6 +29,9 @@ const ctx = board.getContext("2d");
 
 let gridSize = 24;
 let cellSize = board.width / gridSize;
+let obstaclesEnabled = false;
+let slitherEnabled = true;
+let currentDifficulty = "medium";
 const DIFFICULTIES = {
   easy: { baseTick: 140, minTick: 140, stepScore: 9999, lives: 2 },
   medium: { baseTick: 140, minTick: 60, stepScore: 5, lives: 1 },
@@ -35,14 +41,14 @@ const DIFFICULTIES = {
 let state = createInitialState({
   width: gridSize,
   height: gridSize,
-  wrapWalls: false,
+  wrapWalls: currentDifficulty === "easy",
+  obstacles: obstaclesEnabled,
 });
 let countdown = 0;
 let tickId = null;
 let lastTickMs = null;
 let highScore = Number(localStorage.getItem("snake:highScore")) || 0;
 let lives = 0;
-let currentDifficulty = "medium";
 const THEME_KEY = "snake:theme";
 const COLOR_KEY = "snake:color";
 const DIFFICULTY_KEY = "snake:difficulty";
@@ -50,11 +56,18 @@ const GRID_KEY = "snake:grid";
 const GRID_SIZE_KEY = "snake:gridSize";
 const STYLE_KEY = "snake:style";
 const GRID_THEME_KEY = "snake:gridTheme";
+const DAILY_KEY = "snake:daily";
+const OBSTACLES_KEY = "snake:obstacles";
+const SLITHER_KEY = "snake:slither";
 let showGrid = true;
 let gameStarted = false;
 let snakeStyle = "glossy";
 let gridTheme = "classic";
+let dailyMode = false;
+let rng = Math.random;
+let currentDailySeed = "";
 const particles = [];
+const popBursts = [];
 let visualLoopId = null;
 
 const effects = {
@@ -69,10 +82,24 @@ function render() {
   applyCameraTransform(now);
   drawBoardBackground();
   if (showGrid) drawGrid();
+  if (state.walls?.length) drawWalls();
 
   state.snake.forEach((part, index) => {
     const prev = state.snake[index - 1] || null;
     const next = state.snake[index + 1] || null;
+    const slither = slitherEnabled
+      ? getSlitherOffset(
+          part,
+          index,
+          state.snake.length,
+          prev,
+          next,
+          state.direction,
+          now
+        )
+      : { x: 0, y: 0 };
+    ctx.save();
+    ctx.translate(slither.x, slither.y);
     drawSnakeCell(
       part.x,
       part.y,
@@ -84,6 +111,7 @@ function render() {
       next
     );
     if (index === 0) drawEyes(part, state.direction);
+    ctx.restore();
   });
 
   if (state.food) {
@@ -91,7 +119,10 @@ function render() {
   }
 
   if (state.bonusFood) {
-    drawBonusPepper(state.bonusFood.x, state.bonusFood.y, cssVar("--bonus"));
+    const isBlinking = state.bonusTimer > 0 && state.bonusTimer <= 6;
+    if (!isBlinking || state.bonusTimer % 2 === 0) {
+      drawBonusPepper(state.bonusFood.x, state.bonusFood.y, cssVar("--bonus"));
+    }
   }
 
   drawParticles();
@@ -144,41 +175,74 @@ function drawBoardBackground() {
   ctx.fillRect(0, 0, board.width, board.height);
 }
 
+function drawWalls() {
+  ctx.fillStyle = cssVar("--wall");
+  ctx.strokeStyle = cssVar("--wall-stroke");
+  ctx.lineWidth = 1;
+  state.walls.forEach((wall) => {
+    const x = wall.x * cellSize;
+    const y = wall.y * cellSize;
+    ctx.fillRect(x + 2, y + 2, cellSize - 4, cellSize - 4);
+    ctx.strokeRect(x + 2.5, y + 2.5, cellSize - 5, cellSize - 5);
+  });
+}
+
 function drawFoodDot(x, y, color) {
   const cx = x * cellSize + cellSize / 2;
   const cy = y * cellSize + cellSize / 2;
-  const radius = Math.max(3, cellSize * 0.22);
+  const t = performance.now() / 1000;
+  const pulse = 1 + Math.sin(t * 5.2 + x * 0.35 + y * 0.2) * 0.06;
+  const radius = Math.max(3, cellSize * 0.22) * pulse;
+  const rim = Math.max(1, cellSize * 0.035);
 
   ctx.save();
-  ctx.shadowColor = toRgba(color, 0.28);
-  ctx.shadowBlur = cellSize * 0.18;
+  ctx.shadowColor = toRgba(color, 0.32);
+  ctx.shadowBlur = cellSize * 0.24;
 
   const grad = ctx.createRadialGradient(
-    cx - radius * 0.45,
-    cy - radius * 0.45,
-    radius * 0.2,
-    cx + radius * 0.6,
-    cy + radius * 0.6,
-    radius * 1.2
+    cx - radius * 0.42,
+    cy - radius * 0.42,
+    radius * 0.14,
+    cx + radius * 0.55,
+    cy + radius * 0.62,
+    radius * 1.22
   );
-  grad.addColorStop(0, mixColors(color, "#ffffff", 0.35));
-  grad.addColorStop(0.55, color);
-  grad.addColorStop(1, mixColors(color, "#000000", 0.25));
+  grad.addColorStop(0, mixColors(color, "#ffffff", 0.42));
+  grad.addColorStop(0.58, color);
+  grad.addColorStop(1, mixColors(color, "#000000", 0.3));
 
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.arc(cx, cy, radius, 0, Math.PI * 2);
   ctx.fill();
 
+  // Thin rim improves contrast on busy boards without looking cartoonish.
+  ctx.lineWidth = rim;
+  ctx.strokeStyle = toRgba(mixColors(color, "#ffffff", 0.3), 0.75);
+  ctx.stroke();
+
   ctx.shadowBlur = 0;
-  ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.58)";
   ctx.beginPath();
   ctx.ellipse(
-    cx - radius * 0.35,
+    cx - radius * 0.33,
     cy - radius * 0.35,
-    radius * 0.35,
-    radius * 0.25,
-    -0.4,
+    radius * 0.33,
+    radius * 0.24,
+    -0.38,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.22)";
+  ctx.beginPath();
+  ctx.ellipse(
+    cx + radius * 0.16,
+    cy + radius * 0.12,
+    radius * 0.18,
+    radius * 0.12,
+    0.22,
     0,
     Math.PI * 2
   );
@@ -187,17 +251,23 @@ function drawFoodDot(x, y, color) {
 }
 
 function drawBonusPepper(x, y, color) {
+  const t = performance.now() / 1000;
+  const pulse = 1 + Math.sin(t * 4.5 + x * 0.28 + y * 0.2) * 0.05;
   const cx = x * cellSize + cellSize / 2;
   const cy = y * cellSize + cellSize / 2;
-  const w = cellSize * 0.55;
-  const h = cellSize * 0.7;
+  const w = cellSize * 0.55 * pulse;
+  const h = cellSize * 0.7 * pulse;
   const left = cx - w / 2;
   const top = cy - h / 2;
 
   ctx.save();
+  ctx.shadowColor = toRgba(color, 0.32);
+  ctx.shadowBlur = cellSize * 0.2;
+
   const grad = ctx.createLinearGradient(left, top, left + w, top + h);
-  grad.addColorStop(0, color);
-  grad.addColorStop(1, "rgba(255,255,255,0.15)");
+  grad.addColorStop(0, mixColors(color, "#ffffff", 0.28));
+  grad.addColorStop(0.58, color);
+  grad.addColorStop(1, mixColors(color, "#000000", 0.32));
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.moveTo(left + w * 0.15, top + h * 0.2);
@@ -208,17 +278,36 @@ function drawBonusPepper(x, y, color) {
   ctx.closePath();
   ctx.fill();
 
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.25)";
-  ctx.lineWidth = 1;
+  ctx.shadowBlur = 0;
+  const innerGrad = ctx.createRadialGradient(
+    left + w * 0.42,
+    top + h * 0.34,
+    w * 0.08,
+    left + w * 0.62,
+    top + h * 0.62,
+    w * 0.75
+  );
+  innerGrad.addColorStop(0, "rgba(255,255,255,0.28)");
+  innerGrad.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = innerGrad;
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.34)";
+  ctx.lineWidth = Math.max(1, cellSize * 0.03);
   ctx.stroke();
 
-  ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.33)";
   ctx.beginPath();
-  ctx.ellipse(left + w * 0.55, top + h * 0.4, w * 0.18, h * 0.12, -0.4, 0, Math.PI * 2);
+  ctx.ellipse(left + w * 0.52, top + h * 0.38, w * 0.2, h * 0.13, -0.46, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
+  ctx.beginPath();
+  ctx.ellipse(left + w * 0.68, top + h * 0.68, w * 0.12, h * 0.08, 0.3, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.strokeStyle = "#22c55e";
-  ctx.lineWidth = 2;
+  ctx.lineWidth = Math.max(1.6, cellSize * 0.07);
   ctx.beginPath();
   ctx.moveTo(left + w * 0.52, top + h * 0.14);
   ctx.quadraticCurveTo(left + w * 0.62, top + h * 0.02, left + w * 0.78, top + h * 0.08);
@@ -493,6 +582,58 @@ function getDirection(from, to) {
   return "up";
 }
 
+function getSlitherOffset(part, index, total, prev, next, fallbackDirection, nowMs) {
+  const time = nowMs / 1000;
+  const phase = time * 4.6 + index * 0.65;
+  const primary = Math.sin(phase);
+  const secondary = Math.sin(phase * 0.5 + 1.2) * 0.2;
+  const wave = primary * 0.8 + secondary;
+  const centerBias =
+    total > 1 ? 1 - Math.abs(index / (total - 1) - 0.5) * 1.3 : 1;
+  const amplitudeScale = clamp(centerBias, 0.35, 1);
+  const baseAmplitude = Math.max(0.8, cellSize * 0.05 * amplitudeScale);
+  const dir = getSegmentVector(part, prev, next, fallbackDirection);
+  const perp = { x: -dir.y, y: dir.x };
+  return {
+    x: perp.x * baseAmplitude * wave,
+    y: perp.y * baseAmplitude * wave,
+  };
+}
+
+function getSegmentVector(part, prev, next, fallbackDirection) {
+  const vector = { x: 0, y: 0 };
+  if (prev && next) {
+    vector.x = next.x - prev.x;
+    vector.y = next.y - prev.y;
+  } else if (next) {
+    vector.x = next.x - part.x;
+    vector.y = next.y - part.y;
+  } else if (prev) {
+    vector.x = part.x - prev.x;
+    vector.y = part.y - prev.y;
+  } else {
+    return directionToVector(fallbackDirection);
+  }
+
+  if (vector.x !== 0) vector.x = Math.sign(vector.x);
+  if (vector.y !== 0) vector.y = Math.sign(vector.y);
+  if (vector.x === 0 && vector.y === 0) {
+    return directionToVector(fallbackDirection);
+  }
+  return vector;
+}
+
+function directionToVector(direction) {
+  if (direction === "down") return { x: 0, y: 1 };
+  if (direction === "left") return { x: -1, y: 0 };
+  if (direction === "right") return { x: 1, y: 0 };
+  return { x: 0, y: -1 };
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function getNeonSegmentColor(baseColor, index, total) {
   const length = Math.max(1, total - 1);
   const t = total > 1 ? index / length : 0;
@@ -663,12 +804,27 @@ function getLookOffset(direction, distance) {
 }
 
 function drawParticles() {
+  drawPopBursts();
   for (const particle of particles) {
     ctx.globalAlpha = particle.life;
     ctx.fillStyle = particle.color;
     ctx.beginPath();
     ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
     ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawPopBursts() {
+  for (const burst of popBursts) {
+    const progress = 1 - burst.life;
+    const radius = burst.startRadius + (burst.endRadius - burst.startRadius) * progress;
+    ctx.globalAlpha = burst.life * 0.8;
+    ctx.strokeStyle = burst.color;
+    ctx.lineWidth = burst.lineWidth * burst.life;
+    ctx.beginPath();
+    ctx.arc(burst.x, burst.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
   }
   ctx.globalAlpha = 1;
 }
@@ -721,20 +877,35 @@ function hasActiveVisuals(now) {
   return (
     now < effects.shake.end ||
     now < effects.zoom.end ||
-    particles.length > 0
+    particles.length > 0 ||
+    popBursts.length > 0 ||
+    (slitherEnabled &&
+      gameStarted &&
+      !state.isPaused &&
+      !state.isGameOver &&
+      countdown === 0)
   );
 }
 
 function updateVisuals(delta, now) {
-  if (!particles.length) return;
-  for (let i = particles.length - 1; i >= 0; i -= 1) {
-    const particle = particles[i];
-    particle.x += particle.vx * (delta / 1000);
-    particle.y += particle.vy * (delta / 1000);
-    particle.vx *= 0.96;
-    particle.vy *= 0.96;
-    particle.life -= delta / particle.ttl;
-    if (particle.life <= 0) particles.splice(i, 1);
+  if (particles.length) {
+    for (let i = particles.length - 1; i >= 0; i -= 1) {
+      const particle = particles[i];
+      particle.x += particle.vx * (delta / 1000);
+      particle.y += particle.vy * (delta / 1000);
+      particle.vx *= 0.96;
+      particle.vy *= 0.96;
+      particle.life -= delta / particle.ttl;
+      if (particle.life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  if (popBursts.length) {
+    for (let i = popBursts.length - 1; i >= 0; i -= 1) {
+      const burst = popBursts[i];
+      burst.life -= delta / burst.ttl;
+      if (burst.life <= 0) popBursts.splice(i, 1);
+    }
   }
 }
 
@@ -770,6 +941,22 @@ function spawnParticles(x, y, color, count = 14) {
   startVisualLoop();
 }
 
+function spawnPopBurst(x, y, color, strength = 1) {
+  const cx = x * cellSize + cellSize / 2;
+  const cy = y * cellSize + cellSize / 2;
+  popBursts.push({
+    x: cx,
+    y: cy,
+    life: 1,
+    ttl: 180 + strength * 80,
+    startRadius: cellSize * (0.12 + strength * 0.02),
+    endRadius: cellSize * (0.52 + strength * 0.12),
+    lineWidth: Math.max(1.4, cellSize * 0.1),
+    color: toRgba(color, 0.9),
+  });
+  startVisualLoop();
+}
+
 function handleDirectionInput(direction) {
   state = setDirection(state, direction);
   render();
@@ -794,12 +981,16 @@ function onKeyDown(event) {
   if (event.code === "Space") {
     event.preventDefault();
     state = togglePause(state);
+    if (!state.isPaused && slitherEnabled && gameStarted) {
+      startVisualLoop();
+    }
     render();
     return;
   }
   if (event.key === "r" || event.key === "R") {
     event.preventDefault();
-    state = restart(state);
+    rng = getRng(true);
+    state = restart(state, rng);
     lives = DIFFICULTIES[currentDifficulty].lives;
     if (!gameStarted) {
       startGame();
@@ -820,10 +1011,13 @@ function onKeyDown(event) {
 function resetBoard(nextGridSize) {
   gridSize = nextGridSize;
   cellSize = board.width / gridSize;
+  rng = getRng();
   state = createInitialState({
     width: gridSize,
     height: gridSize,
     wrapWalls: currentDifficulty === "easy",
+    obstacles: obstaclesEnabled,
+    rng,
   });
   lives = DIFFICULTIES[currentDifficulty].lives;
   if (gameStarted) {
@@ -834,7 +1028,8 @@ function resetBoard(nextGridSize) {
 }
 
 restartButton.addEventListener("click", () => {
-  state = restart(state);
+  rng = getRng(true);
+  state = restart(state, rng);
   lives = DIFFICULTIES[currentDifficulty].lives;
   if (!gameStarted) {
     startGame();
@@ -888,6 +1083,33 @@ if (gridToggle) {
     showGrid = gridToggle.checked;
     localStorage.setItem(GRID_KEY, showGrid ? "on" : "off");
     render();
+  });
+}
+
+if (obstaclesToggle) {
+  obstaclesToggle.addEventListener("change", () => {
+    obstaclesEnabled = obstaclesToggle.checked;
+    localStorage.setItem(OBSTACLES_KEY, obstaclesEnabled ? "on" : "off");
+    resetBoard(gridSize);
+  });
+}
+
+if (slitherToggle) {
+  slitherToggle.addEventListener("change", () => {
+    slitherEnabled = slitherToggle.checked;
+    localStorage.setItem(SLITHER_KEY, slitherEnabled ? "on" : "off");
+    if (slitherEnabled && gameStarted) {
+      startVisualLoop();
+    }
+    render();
+  });
+}
+
+if (dailyToggle) {
+  dailyToggle.addEventListener("change", () => {
+    dailyMode = dailyToggle.checked;
+    localStorage.setItem(DAILY_KEY, dailyMode ? "on" : "off");
+    resetBoard(gridSize);
   });
 }
 
@@ -946,11 +1168,11 @@ function startLoop() {
   tickId = setInterval(() => {
     if (countdown > 0) return;
     const prevState = state;
-    state = tick(state);
+    state = tick(state, rng);
     const died = !prevState.isGameOver && state.isGameOver;
     if (state.isGameOver && lives > 0) {
       lives -= 1;
-      state = respawn(state);
+      state = respawn(state, rng);
       startCountdown();
     }
     if (died) triggerShake(12, 260);
@@ -970,10 +1192,14 @@ function startLoop() {
       head.y === prevState.bonusFood.y;
     if (ateFood) {
       spawnParticles(prevState.food.x, prevState.food.y, cssVar("--food"));
-      triggerZoom();
+      spawnPopBurst(prevState.food.x, prevState.food.y, cssVar("--food"), 1);
+      triggerZoom(0.1, 190);
+      triggerShake(2.5, 120);
     } else if (ateBonus) {
       spawnParticles(prevState.bonusFood.x, prevState.bonusFood.y, cssVar("--bonus"), 18);
-      triggerZoom(0.09, 220);
+      spawnPopBurst(prevState.bonusFood.x, prevState.bonusFood.y, cssVar("--bonus"), 1.45);
+      triggerZoom(0.14, 240);
+      triggerShake(4, 150);
     }
     const nextTickMs = getTickMs(state.score);
     if (nextTickMs !== lastTickMs) {
@@ -991,6 +1217,9 @@ function startCountdown() {
     if (countdown <= 0) {
       countdown = 0;
       clearInterval(interval);
+      if (slitherEnabled && gameStarted) {
+        startVisualLoop();
+      }
     }
     render();
   }, 700);
@@ -1022,6 +1251,18 @@ if (savedGrid === "off") {
   if (gridToggle) gridToggle.checked = false;
 }
 
+const savedObstacles = localStorage.getItem(OBSTACLES_KEY);
+if (savedObstacles === "on") {
+  obstaclesEnabled = true;
+  if (obstaclesToggle) obstaclesToggle.checked = true;
+}
+
+const savedDaily = localStorage.getItem(DAILY_KEY);
+if (savedDaily === "on") {
+  dailyMode = true;
+  if (dailyToggle) dailyToggle.checked = true;
+}
+
 const savedGridSize = Number(localStorage.getItem(GRID_SIZE_KEY));
 if (savedGridSize && !Number.isNaN(savedGridSize)) {
   gridSize = savedGridSize;
@@ -1041,11 +1282,21 @@ if (savedStyle) {
   );
 }
 
+const savedSlither = localStorage.getItem(SLITHER_KEY);
+if (savedSlither === "off") {
+  slitherEnabled = false;
+  if (slitherToggle) slitherToggle.checked = false;
+}
+
 lives = DIFFICULTIES[currentDifficulty].lives;
+currentDailySeed = getDailySeed();
+if (dailyMode) rng = getRng(true);
 state = createInitialState({
   width: gridSize,
   height: gridSize,
   wrapWalls: currentDifficulty === "easy",
+  obstacles: obstaclesEnabled,
+  rng,
 });
 cellSize = board.width / gridSize;
 
@@ -1059,4 +1310,41 @@ render();
 function cssVar(name) {
   const target = document.body || document.documentElement;
   return getComputedStyle(target).getPropertyValue(name).trim();
+}
+
+function getDailySeed() {
+  const now = new Date();
+  const yyyy = String(now.getFullYear());
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getRng(forceRefresh = false) {
+  if (!dailyMode) return Math.random;
+  const today = getDailySeed();
+  if (forceRefresh || today !== currentDailySeed) {
+    currentDailySeed = today;
+  }
+  return mulberry32(hashString(currentDailySeed));
+}
+
+function hashString(value) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function mulberry32(seed) {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let x = t;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
 }

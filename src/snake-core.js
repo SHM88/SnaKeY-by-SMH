@@ -16,19 +16,24 @@ export function createInitialState({
   width = 20,
   height = 20,
   wrapWalls = false,
+  obstacles = false,
   rng = Math.random,
 } = {}) {
   const startX = Math.floor(width / 2);
   const startY = Math.floor(height / 2);
   const snake = [{ x: startX, y: startY }];
+  const walls = obstacles ? createWalls(width, height, rng) : [];
+  const wallSet = new Set(walls.map((wall) => `${wall.x},${wall.y}`));
   return {
     width,
     height,
     wrapWalls,
+    walls,
+    wallSet,
     snake,
     direction: "right",
     pendingDirection: "right",
-    food: placeFood(width, height, snake, rng),
+    food: placeFood(width, height, snake, rng, walls),
     bonusFood: null,
     bonusTimer: 0,
     score: 0,
@@ -53,6 +58,7 @@ export function restart(state, rng = Math.random) {
     width: state.width,
     height: state.height,
     wrapWalls: state.wrapWalls,
+    obstacles: state.walls?.length > 0,
     rng,
   });
 }
@@ -70,7 +76,7 @@ export function respawn(state, rng = Math.random) {
     snake,
     direction: "right",
     pendingDirection: "right",
-    food: placeFood(state.width, state.height, snake, rng),
+    food: placeFood(state.width, state.height, snake, rng, state.walls),
     bonusFood: null,
     bonusTimer: 0,
     isGameOver: false,
@@ -99,6 +105,9 @@ export function tick(state, rng = Math.random) {
   ) {
     return { ...state, direction, isGameOver: true };
   }
+  if (state.wallSet && state.wallSet.has(`${nextHead.x},${nextHead.y}`)) {
+    return { ...state, direction, isGameOver: true };
+  }
 
   const ateFood =
     state.food &&
@@ -124,7 +133,13 @@ export function tick(state, rng = Math.random) {
   };
 
   if (ateFood) {
-    nextState.food = placeFood(state.width, state.height, nextSnake, rng);
+    nextState.food = placeFood(
+      state.width,
+      state.height,
+      nextSnake,
+      rng,
+      state.walls
+    );
     nextState.score = state.score + 1;
   }
 
@@ -148,7 +163,8 @@ export function tick(state, rng = Math.random) {
         state.width,
         state.height,
         nextState.snake,
-        rng
+        rng,
+        state.walls
       );
       nextState.bonusTimer = nextState.bonusFood ? 35 : 0;
     }
@@ -162,8 +178,11 @@ function hitsSelf(snake) {
   return body.some((part) => part.x === head.x && part.y === head.y);
 }
 
-export function placeFood(width, height, snake, rng = Math.random) {
+export function placeFood(width, height, snake, rng = Math.random, walls = []) {
   const occupied = new Set(snake.map((part) => `${part.x},${part.y}`));
+  for (const wall of walls) {
+    occupied.add(`${wall.x},${wall.y}`);
+  }
   const free = [];
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
@@ -174,4 +193,51 @@ export function placeFood(width, height, snake, rng = Math.random) {
   if (free.length === 0) return null;
   const index = Math.floor(rng() * free.length);
   return free[index];
+}
+
+function createWalls(width, height, rng) {
+  const walls = [];
+  const occupied = new Set();
+  const centerX = Math.floor(width / 2);
+  const centerY = Math.floor(height / 2);
+  const spawnRadius = 2;
+
+  const isFree = (x, y) => {
+    if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) return false;
+    const nearSpawn =
+      Math.abs(x - centerX) <= spawnRadius &&
+      Math.abs(y - centerY) <= spawnRadius;
+    const key = `${x},${y}`;
+    return !nearSpawn && !occupied.has(key);
+  };
+
+  const add = (x, y) => {
+    if (!isFree(x, y)) return;
+    occupied.add(`${x},${y}`);
+    walls.push({ x, y });
+  };
+
+  const minDim = Math.min(width, height);
+  const segmentCount =
+    Math.max(2, Math.floor(minDim * 0.1) + Math.floor(rng() * 4));
+  const minSpan = Math.max(2, Math.floor(minDim * 0.08));
+  const maxSpan = Math.max(minSpan + 1, Math.floor(minDim * 0.2));
+
+  for (let s = 0; s < segmentCount; s += 1) {
+    const horizontal = rng() > 0.5;
+    const span =
+      minSpan + Math.floor(rng() * (maxSpan - minSpan + 1));
+
+    if (horizontal) {
+      const y = 1 + Math.floor(rng() * (height - 2));
+      const xStart = 1 + Math.floor(rng() * Math.max(1, width - 2 - span));
+      for (let i = 0; i < span; i += 1) add(xStart + i, y);
+    } else {
+      const x = 1 + Math.floor(rng() * (width - 2));
+      const yStart = 1 + Math.floor(rng() * Math.max(1, height - 2 - span));
+      for (let i = 0; i < span; i += 1) add(x, yStart + i);
+    }
+  }
+
+  return walls;
 }

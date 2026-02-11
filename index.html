@@ -12,6 +12,8 @@
         --grid: #d9e2ec;
         --board: #ffffff;
         --grid-line: rgba(148, 163, 184, 0.25);
+        --wall: rgba(15, 23, 42, 0.28);
+        --wall-stroke: rgba(15, 23, 42, 0.45);
         --snake: #f6ad55;
         --food: #c53030;
         --bonus: #805ad5;
@@ -27,6 +29,8 @@
         --grid: #1f2937;
         --board: #0b1220;
         --grid-line: rgba(51, 65, 85, 0.55);
+        --wall: rgba(226, 232, 240, 0.22);
+        --wall-stroke: rgba(226, 232, 240, 0.42);
         --snake: #f6ad55;
         --food: #f87171;
         --bonus: #a78bfa;
@@ -58,8 +62,32 @@
       body {
         margin: 0;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-        background: var(--bg);
+        background: radial-gradient(
+            1200px 600px at 10% 0%,
+            rgba(245, 158, 11, 0.08),
+            transparent 60%
+          ),
+          radial-gradient(
+            900px 700px at 90% 10%,
+            rgba(14, 165, 233, 0.08),
+            transparent 55%
+          ),
+          linear-gradient(120deg, var(--bg), var(--bg));
+        background-size: 140% 140%;
+        animation: ambientShift 18s ease-in-out infinite;
         color: var(--text);
+      }
+
+      @keyframes ambientShift {
+        0% {
+          background-position: 0% 0%;
+        }
+        50% {
+          background-position: 100% 40%;
+        }
+        100% {
+          background-position: 0% 0%;
+        }
       }
 
       .wrap {
@@ -344,8 +372,31 @@
       }
 
       .hint {
-        margin-top: 8px;
-        font-size: 0.9rem;
+        margin-top: 12px;
+        font-size: 1rem;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        text-align: center;
+        background: rgba(15, 23, 42, 0.04);
+        border: 1px solid var(--grid);
+        padding: 8px 12px;
+        border-radius: 999px;
+      }
+
+      .keycap {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 8px;
+        margin: 0 2px;
+        font-weight: 700;
+        font-size: 0.9em;
+        letter-spacing: 0.4px;
+        border: 1px solid var(--grid);
+        border-bottom-width: 2px;
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.06);
       }
 
       .status-row {
@@ -401,7 +452,7 @@
           </div>
           <div class="header-block center">
             <details class="controls-panel">
-              <summary>Game controls</summary>
+              <summary>Game Controls</summary>
               <div class="controls-content">
                 <label class="difficulty">
                   <span class="controls-label">Difficulty</span>
@@ -422,6 +473,18 @@
                 <label class="toggle">
                   Grid
                   <input id="grid-toggle" type="checkbox" checked />
+                </label>
+                <label class="toggle">
+                  Obstacles
+                  <input id="obstacles-toggle" type="checkbox" />
+                </label>
+                <label class="toggle">
+                  Slither
+                  <input id="slither-toggle" type="checkbox" checked />
+                </label>
+                <label class="toggle">
+                  Daily
+                  <input id="daily-toggle" type="checkbox" />
                 </label>
               </div>
             </details>
@@ -487,7 +550,11 @@
           </div>
         </div>
         <div class="hint">
-          Use arrow keys or WASD. Space pauses. Press R to restart. Purple food is bonus points.
+          Use arrow keys or
+          <span class="keycap">W</span><span class="keycap">A</span
+          ><span class="keycap">S</span><span class="keycap">D</span>.
+          <span class="keycap">Space</span> pauses. Press <span class="keycap">R</span>
+          to restart. Purple food is bonus points.
         </div>
       </section>
     </main>
