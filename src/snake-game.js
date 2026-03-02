@@ -19,6 +19,7 @@ const gridSizeSelect = document.getElementById("grid-size");
 const gridToggle = document.getElementById("grid-toggle");
 const obstaclesToggle = document.getElementById("obstacles-toggle");
 const slitherToggle = document.getElementById("slither-toggle");
+const musicToggle = document.getElementById("music-toggle");
 const dailyToggle = document.getElementById("daily-toggle");
 const gridThemeButtons = document.querySelectorAll(".theme-btn[data-grid-theme]");
 const menu = document.getElementById("menu");
@@ -59,6 +60,7 @@ const GRID_THEME_KEY = "snake:gridTheme";
 const DAILY_KEY = "snake:daily";
 const OBSTACLES_KEY = "snake:obstacles";
 const SLITHER_KEY = "snake:slither";
+const MUSIC_KEY = "snake:music";
 let showGrid = true;
 let gameStarted = false;
 let snakeStyle = "glossy";
@@ -69,6 +71,15 @@ let currentDailySeed = "";
 const particles = [];
 const popBursts = [];
 let visualLoopId = null;
+let musicEnabled = true;
+let audioCtx = null;
+let musicGain = null;
+let musicTimer = null;
+let musicStep = 0;
+
+const MUSIC_TEMPO_MS = 220;
+const MUSIC_LEAD = [64, 67, 69, 71, 72, 71, 69, 67, 64, 67, 69, 67, 65, 64, 62, null];
+const MUSIC_BASS = [40, null, 40, null, 43, null, 38, null];
 
 const effects = {
   shake: { end: 0, duration: 0, magnitude: 0 },
@@ -963,6 +974,7 @@ function handleDirectionInput(direction) {
 }
 
 function onKeyDown(event) {
+  activateMusic();
   const map = {
     ArrowUp: "up",
     ArrowDown: "down",
@@ -1028,6 +1040,7 @@ function resetBoard(nextGridSize) {
 }
 
 restartButton.addEventListener("click", () => {
+  activateMusic();
   rng = getRng(true);
   state = restart(state, rng);
   lives = DIFFICULTIES[currentDifficulty].lives;
@@ -1040,6 +1053,7 @@ restartButton.addEventListener("click", () => {
 });
 
 themeToggle.addEventListener("click", () => {
+  activateMusic();
   const isDark = document.body.classList.toggle("dark");
   localStorage.setItem(THEME_KEY, isDark ? "dark" : "light");
   themeToggle.textContent = isDark ? "Light mode" : "Dark mode";
@@ -1105,6 +1119,18 @@ if (slitherToggle) {
   });
 }
 
+if (musicToggle) {
+  musicToggle.addEventListener("change", () => {
+    musicEnabled = musicToggle.checked;
+    localStorage.setItem(MUSIC_KEY, musicEnabled ? "on" : "off");
+    if (musicEnabled) {
+      activateMusic();
+    } else {
+      stopMusicLoop();
+    }
+  });
+}
+
 if (dailyToggle) {
   dailyToggle.addEventListener("change", () => {
     dailyMode = dailyToggle.checked;
@@ -1142,6 +1168,7 @@ styleButtons.forEach((button) => {
 
 function startGame() {
   gameStarted = true;
+  activateMusic();
   if (menu) menu.classList.add("hidden");
   startLoop();
   startCountdown();
@@ -1155,6 +1182,7 @@ if (startButton) {
 }
 
 document.addEventListener("keydown", onKeyDown);
+document.addEventListener("pointerdown", activateMusic, { passive: true });
 
 function getTickMs(score) {
   const config = DIFFICULTIES[currentDifficulty];
@@ -1288,6 +1316,12 @@ if (savedSlither === "off") {
   if (slitherToggle) slitherToggle.checked = false;
 }
 
+const savedMusic = localStorage.getItem(MUSIC_KEY);
+if (savedMusic === "off") {
+  musicEnabled = false;
+  if (musicToggle) musicToggle.checked = false;
+}
+
 lives = DIFFICULTIES[currentDifficulty].lives;
 currentDailySeed = getDailySeed();
 if (dailyMode) rng = getRng(true);
@@ -1347,4 +1381,73 @@ function mulberry32(seed) {
     x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
     return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+function activateMusic() {
+  if (!musicEnabled) return;
+  ensureAudioContext();
+  if (!audioCtx) return;
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume();
+  }
+  startMusicLoop();
+}
+
+function ensureAudioContext() {
+  if (audioCtx) return;
+  const AudioCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtor) return;
+  audioCtx = new AudioCtor();
+  musicGain = audioCtx.createGain();
+  musicGain.gain.value = 0.06;
+  musicGain.connect(audioCtx.destination);
+}
+
+function startMusicLoop() {
+  if (!audioCtx || musicTimer) return;
+  musicTimer = setInterval(() => {
+    playMusicStep();
+  }, MUSIC_TEMPO_MS);
+  playMusicStep();
+}
+
+function stopMusicLoop() {
+  if (!musicTimer) return;
+  clearInterval(musicTimer);
+  musicTimer = null;
+}
+
+function playMusicStep() {
+  if (!audioCtx || !musicGain) return;
+  const step = musicStep;
+  const leadNote = MUSIC_LEAD[step % MUSIC_LEAD.length];
+  const bassNote = MUSIC_BASS[step % MUSIC_BASS.length];
+  const now = audioCtx.currentTime;
+  const beat = MUSIC_TEMPO_MS / 1000;
+
+  if (leadNote != null) {
+    scheduleSynthNote(midiToFreq(leadNote), now, beat * 0.92, "triangle", 0.75);
+  }
+  if (bassNote != null) {
+    scheduleSynthNote(midiToFreq(bassNote), now, beat * 0.98, "sine", 0.52);
+  }
+  musicStep += 1;
+}
+
+function scheduleSynthNote(freq, when, duration, type, level) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, when);
+  gain.gain.setValueAtTime(0.0001, when);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, level), when + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+  osc.connect(gain);
+  gain.connect(musicGain);
+  osc.start(when);
+  osc.stop(when + duration + 0.02);
+}
+
+function midiToFreq(note) {
+  return 440 * 2 ** ((note - 69) / 12);
 }
