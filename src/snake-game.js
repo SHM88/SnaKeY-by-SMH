@@ -19,6 +19,7 @@ const gridSizeSelect = document.getElementById("grid-size");
 const gridToggle = document.getElementById("grid-toggle");
 const obstaclesToggle = document.getElementById("obstacles-toggle");
 const slitherToggle = document.getElementById("slither-toggle");
+const smoothToggle = document.getElementById("smooth-toggle");
 const musicToggle = document.getElementById("music-toggle");
 const dailyToggle = document.getElementById("daily-toggle");
 const gridThemeButtons = document.querySelectorAll(".theme-btn[data-grid-theme]");
@@ -26,12 +27,17 @@ const menu = document.getElementById("menu");
 const startButton = document.getElementById("start-game");
 const styleButtons = document.querySelectorAll(".style-btn[data-style]");
 const colorButtons = document.querySelectorAll(".color-swatch[data-color]");
+const dpadButtons = document.querySelectorAll(".dpad-btn[data-dir]");
+const touchPauseButton = document.getElementById("touch-pause");
 const ctx = board.getContext("2d");
+const isTouchDevice = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+const SWIPE_THRESHOLD = 24;
 
 let gridSize = 24;
 let cellSize = board.width / gridSize;
 let obstaclesEnabled = false;
 let slitherEnabled = true;
+let smoothEnabled = true;
 let currentDifficulty = "medium";
 const DIFFICULTIES = {
   easy: { baseTick: 140, minTick: 140, stepScore: 9999, lives: 2 },
@@ -48,6 +54,9 @@ let state = createInitialState({
 let countdown = 0;
 let tickId = null;
 let lastTickMs = null;
+let lastTickTime = 0;
+let prevSnake = state.snake;
+let eatenFood = null;
 let highScore = Number(localStorage.getItem("snake:highScore")) || 0;
 let lives = 0;
 const THEME_KEY = "snake:theme";
@@ -60,6 +69,7 @@ const GRID_THEME_KEY = "snake:gridTheme";
 const DAILY_KEY = "snake:daily";
 const OBSTACLES_KEY = "snake:obstacles";
 const SLITHER_KEY = "snake:slither";
+const SMOOTH_KEY = "snake:smooth";
 const MUSIC_KEY = "snake:music";
 let showGrid = true;
 let gameStarted = false;
@@ -95,7 +105,17 @@ function render() {
   if (showGrid) drawGrid();
   if (state.walls?.length) drawWalls();
 
+  if (eatenFood && now < eatenFood.until) {
+    if (eatenFood.isBonus) {
+      drawBonusPepper(eatenFood.x, eatenFood.y, cssVar("--bonus"));
+    } else {
+      drawFoodDot(eatenFood.x, eatenFood.y, cssVar("--food"));
+    }
+  }
+
+  const renderSnake = getRenderSnake(now);
   state.snake.forEach((part, index) => {
+    const pos = renderSnake[index];
     const prev = state.snake[index - 1] || null;
     const next = state.snake[index + 1] || null;
     const slither = slitherEnabled
@@ -112,16 +132,17 @@ function render() {
     ctx.save();
     ctx.translate(slither.x, slither.y);
     drawSnakeCell(
-      part.x,
-      part.y,
+      pos.x,
+      pos.y,
       cssVar("--snake"),
       index,
       state.snake.length,
       state.direction,
       prev,
-      next
+      next,
+      part
     );
-    if (index === 0) drawEyes(part, state.direction);
+    if (index === 0) drawEyes(pos, state.direction);
     ctx.restore();
   });
 
@@ -161,7 +182,11 @@ function render() {
     ctx.textAlign = "center";
     ctx.fillText("Game Over", board.width / 2, board.height / 2 - 8);
     ctx.font = "18px system-ui";
-    ctx.fillText("Press R to Restart", board.width / 2, board.height / 2 + 24);
+    ctx.fillText(
+      isTouchDevice ? "Tap to Restart" : "Press R to Restart",
+      board.width / 2,
+      board.height / 2 + 24
+    );
   } else if (state.isPaused) {
     ctx.fillStyle = cssVar("--overlay");
     ctx.fillRect(0, 0, board.width, board.height);
@@ -169,6 +194,10 @@ function render() {
     ctx.font = "bold 28px system-ui";
     ctx.textAlign = "center";
     ctx.fillText("Paused", board.width / 2, board.height / 2);
+    if (isTouchDevice) {
+      ctx.font = "18px system-ui";
+      ctx.fillText("Tap to resume", board.width / 2, board.height / 2 + 30);
+    }
   } else if (countdown > 0) {
     ctx.fillStyle = cssVar("--overlay");
     ctx.fillRect(0, 0, board.width, board.height);
@@ -179,6 +208,53 @@ function render() {
   }
 
   ctx.restore();
+
+  if (touchPauseButton) {
+    touchPauseButton.textContent = state.isGameOver
+      ? "Retry"
+      : state.isPaused
+        ? "Play"
+        : "Pause";
+  }
+}
+
+function getMoveProgress(now) {
+  if (
+    !smoothEnabled ||
+    !gameStarted ||
+    state.isPaused ||
+    state.isGameOver ||
+    countdown > 0 ||
+    !lastTickMs
+  ) {
+    return 1;
+  }
+  return clamp((now - lastTickTime) / lastTickMs, 0, 1);
+}
+
+function getRenderSnake(now) {
+  const t = getMoveProgress(now);
+  if (t >= 1) return state.snake;
+  return state.snake.map((part, index) => {
+    const from = prevSnake[index];
+    if (!from) return part;
+    return {
+      x: lerpAxis(from.x, part.x, t, state.width),
+      y: lerpAxis(from.y, part.y, t, state.height),
+    };
+  });
+}
+
+// A step larger than one cell means the segment wrapped around the board edge,
+// so glide it in from the opposite side instead of sweeping across the board.
+function lerpAxis(from, to, t, size) {
+  let delta = to - from;
+  if (delta > 1) delta -= size;
+  else if (delta < -1) delta += size;
+  let value = from + delta * t;
+  if (value > size - 1) value -= size;
+  else if (value < 0) value += size;
+  return value;
 }
 
 function drawBoardBackground() {
@@ -353,14 +429,14 @@ function drawCell(x, y, color) {
   );
 }
 
-function drawSnakeCell(x, y, color, index, total, headDirection, prev, next) {
+function drawSnakeCell(x, y, color, index, total, headDirection, prev, next, grid = { x, y }) {
   const px = x * cellSize + 1;
   const py = y * cellSize + 1;
   const size = cellSize - 2;
   const radius = Math.max(3, size * 0.18);
   const isHead = index === 0;
   const isTail = index === total - 1;
-  const tailDir = isTail && prev ? getDirection({ x, y }, prev) : null;
+  const tailDir = isTail && prev ? getDirection(grid, prev) : null;
 
   if (snakeStyle === "classic") {
     if (isHead) {
@@ -890,12 +966,17 @@ function hasActiveVisuals(now) {
     now < effects.zoom.end ||
     particles.length > 0 ||
     popBursts.length > 0 ||
-    (slitherEnabled &&
+    (eatenFood && now < eatenFood.until) ||
+    (wantsLiveMotion() &&
       gameStarted &&
       !state.isPaused &&
       !state.isGameOver &&
       countdown === 0)
   );
+}
+
+function wantsLiveMotion() {
+  return slitherEnabled || smoothEnabled;
 }
 
 function updateVisuals(delta, now) {
@@ -992,24 +1073,12 @@ function onKeyDown(event) {
 
   if (event.code === "Space") {
     event.preventDefault();
-    state = togglePause(state);
-    if (!state.isPaused && slitherEnabled && gameStarted) {
-      startVisualLoop();
-    }
-    render();
+    togglePauseGame();
     return;
   }
   if (event.key === "r" || event.key === "R") {
     event.preventDefault();
-    rng = getRng(true);
-    state = restart(state, rng);
-    lives = DIFFICULTIES[currentDifficulty].lives;
-    if (!gameStarted) {
-      startGame();
-      return;
-    }
-    startCountdown();
-    render();
+    restartGame();
     return;
   }
 
@@ -1019,6 +1088,98 @@ function onKeyDown(event) {
   handleDirectionInput(direction);
 }
 
+function togglePauseGame() {
+  state = togglePause(state);
+  if (!state.isPaused && wantsLiveMotion() && gameStarted) {
+    startVisualLoop();
+  }
+  render();
+}
+
+function restartGame() {
+  rng = getRng(true);
+  state = restart(state, rng);
+  prevSnake = state.snake;
+  eatenFood = null;
+  lives = DIFFICULTIES[currentDifficulty].lives;
+  if (!gameStarted) {
+    startGame();
+    return;
+  }
+  startCountdown();
+  render();
+}
+
+let touchStart = null;
+
+board.addEventListener(
+  "touchstart",
+  (event) => {
+    const touch = event.changedTouches[0];
+    touchStart = { x: touch.clientX, y: touch.clientY, swiped: false };
+  },
+  { passive: true }
+);
+
+board.addEventListener(
+  "touchmove",
+  (event) => {
+    if (!touchStart) return;
+    event.preventDefault();
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - touchStart.x;
+    const dy = touch.clientY - touchStart.y;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_THRESHOLD) return;
+    const direction =
+      Math.abs(dx) > Math.abs(dy)
+        ? dx > 0
+          ? "right"
+          : "left"
+        : dy > 0
+          ? "down"
+          : "up";
+    handleDirectionInput(direction);
+    // Re-anchor so the player can chain turns without lifting their finger.
+    touchStart = { x: touch.clientX, y: touch.clientY, swiped: true };
+  },
+  { passive: false }
+);
+
+board.addEventListener("touchend", () => {
+  const wasTap = touchStart && !touchStart.swiped;
+  touchStart = null;
+  if (!wasTap || !gameStarted) return;
+  if (state.isGameOver) {
+    restartGame();
+  } else if (state.isPaused) {
+    togglePauseGame();
+  }
+});
+
+board.addEventListener("touchcancel", () => {
+  touchStart = null;
+});
+
+dpadButtons.forEach((button) => {
+  button.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    activateMusic();
+    handleDirectionInput(button.dataset.dir);
+  });
+});
+
+if (touchPauseButton) {
+  touchPauseButton.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    activateMusic();
+    if (!gameStarted) return;
+    if (state.isGameOver) {
+      restartGame();
+    } else {
+      togglePauseGame();
+    }
+  });
+}
 
 function resetBoard(nextGridSize) {
   gridSize = nextGridSize;
@@ -1031,6 +1192,8 @@ function resetBoard(nextGridSize) {
     obstacles: obstaclesEnabled,
     rng,
   });
+  prevSnake = state.snake;
+  eatenFood = null;
   lives = DIFFICULTIES[currentDifficulty].lives;
   if (gameStarted) {
     startCountdown();
@@ -1041,15 +1204,7 @@ function resetBoard(nextGridSize) {
 
 restartButton.addEventListener("click", () => {
   activateMusic();
-  rng = getRng(true);
-  state = restart(state, rng);
-  lives = DIFFICULTIES[currentDifficulty].lives;
-  if (!gameStarted) {
-    startGame();
-    return;
-  }
-  startCountdown();
-  render();
+  restartGame();
 });
 
 themeToggle.addEventListener("click", () => {
@@ -1113,6 +1268,17 @@ if (slitherToggle) {
     slitherEnabled = slitherToggle.checked;
     localStorage.setItem(SLITHER_KEY, slitherEnabled ? "on" : "off");
     if (slitherEnabled && gameStarted) {
+      startVisualLoop();
+    }
+    render();
+  });
+}
+
+if (smoothToggle) {
+  smoothToggle.addEventListener("change", () => {
+    smoothEnabled = smoothToggle.checked;
+    localStorage.setItem(SMOOTH_KEY, smoothEnabled ? "on" : "off");
+    if (smoothEnabled && gameStarted) {
       startVisualLoop();
     }
     render();
@@ -1197,10 +1363,13 @@ function startLoop() {
     if (countdown > 0) return;
     const prevState = state;
     state = tick(state, rng);
+    prevSnake = prevState.snake;
+    lastTickTime = performance.now();
     const died = !prevState.isGameOver && state.isGameOver;
     if (state.isGameOver && lives > 0) {
       lives -= 1;
       state = respawn(state, rng);
+      prevSnake = state.snake;
       startCountdown();
     }
     if (died) triggerShake(12, 260);
@@ -1218,16 +1387,15 @@ function startLoop() {
       prevState.bonusFood &&
       head.x === prevState.bonusFood.x &&
       head.y === prevState.bonusFood.y;
-    if (ateFood) {
-      spawnParticles(prevState.food.x, prevState.food.y, cssVar("--food"));
-      spawnPopBurst(prevState.food.x, prevState.food.y, cssVar("--food"), 1);
-      triggerZoom(0.1, 190);
-      triggerShake(2.5, 120);
-    } else if (ateBonus) {
-      spawnParticles(prevState.bonusFood.x, prevState.bonusFood.y, cssVar("--bonus"), 18);
-      spawnPopBurst(prevState.bonusFood.x, prevState.bonusFood.y, cssVar("--bonus"), 1.45);
-      triggerZoom(0.14, 240);
-      triggerShake(4, 150);
+    if (ateFood || ateBonus) {
+      const eaten = ateFood ? prevState.food : prevState.bonusFood;
+      // With smooth movement the head is still gliding toward the food, so keep
+      // drawing it and fire the effects when the head actually arrives.
+      const arrivalDelay = smoothEnabled ? lastTickMs * 0.85 : 0;
+      eatenFood = smoothEnabled
+        ? { x: eaten.x, y: eaten.y, isBonus: !ateFood, until: lastTickTime + arrivalDelay }
+        : null;
+      setTimeout(() => playEatEffects(eaten, !ateFood), arrivalDelay);
     }
     const nextTickMs = getTickMs(state.score);
     if (nextTickMs !== lastTickMs) {
@@ -1238,6 +1406,20 @@ function startLoop() {
   }, lastTickMs);
 }
 
+function playEatEffects(food, isBonus) {
+  if (isBonus) {
+    spawnParticles(food.x, food.y, cssVar("--bonus"), 18);
+    spawnPopBurst(food.x, food.y, cssVar("--bonus"), 1.45);
+    triggerZoom(0.14, 240);
+    triggerShake(4, 150);
+  } else {
+    spawnParticles(food.x, food.y, cssVar("--food"));
+    spawnPopBurst(food.x, food.y, cssVar("--food"), 1);
+    triggerZoom(0.1, 190);
+    triggerShake(2.5, 120);
+  }
+}
+
 function startCountdown() {
   countdown = 3;
   const interval = setInterval(() => {
@@ -1245,7 +1427,7 @@ function startCountdown() {
     if (countdown <= 0) {
       countdown = 0;
       clearInterval(interval);
-      if (slitherEnabled && gameStarted) {
+      if (wantsLiveMotion() && gameStarted) {
         startVisualLoop();
       }
     }
@@ -1316,6 +1498,12 @@ if (savedSlither === "off") {
   if (slitherToggle) slitherToggle.checked = false;
 }
 
+const savedSmooth = localStorage.getItem(SMOOTH_KEY);
+if (savedSmooth === "off") {
+  smoothEnabled = false;
+  if (smoothToggle) smoothToggle.checked = false;
+}
+
 const savedMusic = localStorage.getItem(MUSIC_KEY);
 if (savedMusic === "off") {
   musicEnabled = false;
@@ -1332,6 +1520,7 @@ state = createInitialState({
   obstacles: obstaclesEnabled,
   rng,
 });
+prevSnake = state.snake;
 cellSize = board.width / gridSize;
 
 document.body.setAttribute("data-grid-theme", gridTheme);

@@ -366,6 +366,111 @@
         margin-right: auto;
       }
 
+      #board {
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+
+      .dpad,
+      .touch-hint {
+        display: none;
+      }
+
+      .dpad {
+        grid-template-columns: repeat(3, 64px);
+        grid-template-rows: repeat(3, 64px);
+        grid-template-areas:
+          ". up ."
+          "left center right"
+          ". down .";
+        gap: 6px;
+        justify-content: center;
+        margin: 14px auto 4px;
+      }
+
+      .dpad-btn {
+        border: 1px solid var(--grid);
+        background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+        color: var(--text);
+        border-radius: 14px;
+        font-size: 1.3rem;
+        font-weight: 700;
+        cursor: pointer;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+        -webkit-user-select: none;
+        user-select: none;
+        box-shadow: 0 2px 4px rgba(15, 23, 42, 0.12);
+        transition: transform 80ms ease, box-shadow 80ms ease;
+      }
+
+      .dpad-btn:active {
+        transform: scale(0.94);
+        box-shadow: 0 1px 1px rgba(15, 23, 42, 0.2);
+      }
+
+      .dpad-up { grid-area: up; }
+      .dpad-left { grid-area: left; }
+      .dpad-right { grid-area: right; }
+      .dpad-down { grid-area: down; }
+
+      .dpad-center {
+        grid-area: center;
+        font-size: 0.8rem;
+        border-color: #f59e0b;
+        background: linear-gradient(180deg, #fde68a 0%, #f59e0b 100%);
+        color: #1f2933;
+      }
+
+      body.dark .dpad-btn {
+        border-color: #1f2937;
+        background: linear-gradient(180deg, #1f2937 0%, #0f172a 100%);
+        color: #e2e8f0;
+      }
+
+      body.dark .dpad-center {
+        border-color: #f59e0b;
+        background: linear-gradient(180deg, #f59e0b 0%, #b45309 100%);
+        color: #0b1020;
+      }
+
+      @media (hover: none) and (pointer: coarse) {
+        .dpad {
+          display: grid;
+        }
+
+        .touch-hint {
+          display: block;
+        }
+
+        .desktop-hint {
+          display: none;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .wrap {
+          margin: 8px auto;
+          padding: 8px;
+        }
+
+        .panel {
+          padding: 10px;
+        }
+
+        .status-row {
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 10px;
+        }
+
+        .hint {
+          font-size: 0.85rem;
+          border-radius: 14px;
+        }
+      }
+
       body.dark canvas {
         box-shadow: 0 10px 24px rgba(2, 6, 23, 0.55),
           0 0 0 2px rgba(148, 163, 184, 0.2);
@@ -483,6 +588,10 @@
                   <input id="slither-toggle" type="checkbox" checked />
                 </label>
                 <label class="toggle">
+                  Smooth
+                  <input id="smooth-toggle" type="checkbox" checked />
+                </label>
+                <label class="toggle">
                   Music
                   <input id="music-toggle" type="checkbox" checked />
                 </label>
@@ -503,6 +612,15 @@
           </div>
         </div>
         <canvas id="board" width="720" height="720" aria-label="Snake game board"></canvas>
+        <div class="dpad" role="group" aria-label="Touch controls">
+          <button class="dpad-btn dpad-up" data-dir="up" type="button" aria-label="Up">▲</button>
+          <button class="dpad-btn dpad-left" data-dir="left" type="button" aria-label="Left">◀</button>
+          <button id="touch-pause" class="dpad-btn dpad-center" type="button" aria-label="Pause or restart">
+            Pause
+          </button>
+          <button class="dpad-btn dpad-right" data-dir="right" type="button" aria-label="Right">▶</button>
+          <button class="dpad-btn dpad-down" data-dir="down" type="button" aria-label="Down">▼</button>
+        </div>
         <div class="status-row">
           <div class="color-picker" aria-label="Snake color">
             <button
@@ -553,7 +671,11 @@
             Lives: <span id="lives"></span><span id="lives-empty"></span>
           </div>
         </div>
-        <div class="hint">
+        <div class="hint touch-hint">
+          Swipe on the board or use the pad to steer. Tap the board to resume or
+          restart. Purple food is bonus points.
+        </div>
+        <div class="hint desktop-hint">
           Use arrow keys or
           <span class="keycap">W</span><span class="keycap">A</span
           ><span class="keycap">S</span><span class="keycap">D</span>.
